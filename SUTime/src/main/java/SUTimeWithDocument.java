@@ -98,7 +98,7 @@ public class SUTimeWithDocument {
 				String timeExpress = cm.get(TimeExpression.Annotation.class).getTemporal().getTimexValue();
 				System.out.println(timeExpress);
 				try {
-					listDates.add(convertTimextoDate(timeExpress));
+					listDates.add(convertTimexToDate(timeExpress));
 				} catch (java.text.ParseException e) {
 					e.printStackTrace();
 				}
@@ -176,7 +176,7 @@ public class SUTimeWithDocument {
 		}
 	}
 
-	public static Date convertTimextoDate(String timexValue) throws java.text.ParseException {
+	public static Date convertTimexToDate(String timexValue) throws java.text.ParseException {
 		SimpleDateFormat simpleDateFormat1 = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm");
 		SimpleDateFormat simpleDateFormat2 = new SimpleDateFormat("yyyy-MM-dd");
 		Date date = null;
