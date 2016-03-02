@@ -7,6 +7,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Properties;
 
 import com.sun.org.apache.xerces.internal.impl.xpath.regex.ParseException;
@@ -18,15 +19,15 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
 
-class SUTimeTool{
+class FileDecision{
 
 	//@param args is path to file
 
 	String fileName = new String();
-	static String standardTime = new String();
+	static String today = new String();
 	static List<String> listSentences = new ArrayList<String>();
 
-	public SUTimeTool(String content){
+	public FileDecision(String content){
 		initializes(content);
 		readFile();
 	}
@@ -35,7 +36,7 @@ class SUTimeTool{
 		DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH);
 		Date date = new Date();
 		this.fileName = fileName;	
-		standardTime = dateFormat.format(date).toString();
+		today = dateFormat.format(date).toString();
 	}
 
 	public void readFile(){
@@ -77,18 +78,19 @@ public class SUTimeWithDocument {
 		pipeline.addAnnotator(new TokenizerAnnotator(true));
 		pipeline.addAnnotator(new TimeAnnotator("sutime", props));
 		
-		SUTimeTool tool = new SUTimeTool(args[0]);
+		FileDecision decision = new FileDecision(args[0]);
 
-		for(String text : SUTimeTool.listSentences){
+		for(String text : FileDecision.listSentences){
 			Annotation annotation = new Annotation(text);
-			annotation.set(CoreAnnotations.DocDateAnnotation.class, SUTimeTool.standardTime);
+			annotation.set(CoreAnnotations.DocDateAnnotation.class, FileDecision.today);
 			pipeline.annotate(annotation);// Run the pipeline on an input annotation.
 			System.out.println(annotation.get(CoreAnnotations.TextAnnotation.class));
 			List<CoreMap> timexAnnsAll = annotation.get(TimeAnnotations.TimexAnnotations.class);
 			for(CoreMap cm : timexAnnsAll){
-				String pattern = cm.get(TimeExpression.Annotation.class).getTemporal().toString();
+				String timeExpress = cm.get(TimeExpression.Annotation.class).getTemporal().toString();
+				System.out.println(timeExpress);
 				try {
-					setFormatAndMakeDate(pattern);
+					setFormatAndMakeDate(timeExpress);
 				} 
 				catch (java.text.ParseException e) {
 					e.printStackTrace();
@@ -101,16 +103,71 @@ public class SUTimeWithDocument {
 		}
 	}
 	
-	public static void setFormatAndMakeDate(String pattern) throws java.text.ParseException{
-		if(pattern.contains("T")){
-			SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd hh:mm", Locale.ENGLISH);
-			Date date = format.parse(pattern.replace('T', ' '));
+	public static void setFormatAndMakeDate(String timeExpress) throws java.text.ParseException{
+		String timePart = new String();
+		String datePart = new String();
+		
+		if(timeExpress.contains("T")){
+			int index = timeExpress.indexOf("T");
+			timePart = timeExpress.substring(index + 1);
+		}
+		if(!timeExpress.contains("WXX") && timeExpress.contains("W")){
+			int startIndexForWeek = timeExpress.indexOf("W");
+			int endIndexForWeek = 0;
+			startIndexForWeek ++;
+			int year = 0 , week = 0;
+			endIndexForWeek = startIndexForWeek + 2;
+			String weekNum = timeExpress.substring(startIndexForWeek, endIndexForWeek);
+			week = Integer.parseInt(weekNum);
+			week ++;
+			for(int i = 0 ; i < timeExpress.length() ; i++){
+				if(timeExpress.charAt(i) == '-'){
+					year = Integer.parseInt(timeExpress.substring(0, i));
+					break;
+				}
+			}
+			Calendar cld = Calendar.getInstance();
+			cld.set(Calendar.YEAR, year);
+			cld.set(Calendar.WEEK_OF_YEAR, week);
+			if(timePart.length() != 0){
+			cld.set(Calendar.HOUR, Integer.parseInt(timePart.substring(0, 2)));
+				cld.set(Calendar.MINUTE, Integer.parseInt(timePart.substring(3, 5)));
+			}
+			Date date = cld.getTime();
 			listDates.add(date);
 		}
 		else{
-			SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH);
-			Date date = format.parse(pattern);
-			listDates.add(date);
+			if(!timeExpress.contains("XXXX")){
+				int countCrossSymbol = 0;
+				for(int i = 0 ; i < timeExpress.length() ; i++){
+					if(timeExpress.charAt(i) == '-'){
+						if(countCrossSymbol < 2){
+							countCrossSymbol++;
+						}
+					}
+					if(timeExpress.charAt(i) != '-' && (timeExpress.charAt(i) < '0' || timeExpress.charAt(i) > '9')){
+						datePart = timeExpress.substring(0, i - 1);
+						break;
+					}
+					if(countCrossSymbol == 2){
+						datePart = timeExpress.substring(0, i + 3);
+						break;
+					}
+				}
+				DateFormat format;
+				String dateOutput = datePart;
+				if(timePart.length() != 0){
+					dateOutput += " " + timePart;
+					format = new SimpleDateFormat("yyyy-MM-dd hh:mm");
+					Date date = format.parse(dateOutput);
+					listDates.add(date);
+				}
+				else{				
+					format = new SimpleDateFormat("yyyy-MM-dd");
+					Date date = format.parse(dateOutput);
+					listDates.add(date);
+				}
+			}
 		}
 	}
 }
