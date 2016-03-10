@@ -102,6 +102,7 @@ class SplitEvent{
 		
 		for (String text : FileDecision.listSentences) {
 			text = text.toLowerCase();
+			
 			if(text.matches("(.*)from(.*)to(.*)on(.*)") || text.matches("from(.*)to(.*)on(.*)") || text.matches("from(.*)to(.*)") || text.matches("(.*)from(.*)to(.*)")){
 				editTextWithFromTo(text);
 			}
@@ -114,7 +115,6 @@ class SplitEvent{
 				List<CoreMap> timexAnnsAll = annotation.get(TimeAnnotations.TimexAnnotations.class);
 				for (CoreMap cm : timexAnnsAll) {
 					String timeExpress = cm.get(TimeExpression.Annotation.class).getTemporal().getTimexValue();
-					System.out.println(timeExpress);
 					if(timeExpress.contains("W")){
 						// For case has week only
 						processWithWeek(timeExpress);
@@ -146,6 +146,9 @@ class SplitEvent{
 								int index = i + 1;
 								while((element.charAt(index) >= 'A' && element.charAt(index) <= 'Z') || (element.charAt(index) >= 'a' && element.charAt(index) <= 'z')){
 									index++;
+									if(index == element.length()){
+										break;
+									}
 								}
 								dayAfterOn = element.substring(i + 1,index);
 								break;
@@ -179,21 +182,73 @@ class SplitEvent{
 				String subTimeExpress = cm.get(TimeExpression.Annotation.class).getTemporal().getTimexValue();
 				timeExpress += subTimeExpress + " ";
 			}
+			
 			for(int i = 0 ; i < timeExpress.length() ; i++){
 				if(timeExpress.charAt(i) == ' '){
 					startDate = timeExpress.substring(0, i);
-					endDate = timeExpress.substring(i + 1, timeExpress.length() - 1);
+					if(i < timeExpress.length() - 1){
+						endDate = timeExpress.substring(i + 1, timeExpress.length() - 1);
+					}
+					else{
+						endDate = timeExpress.substring(i, timeExpress.length() - 1);
+					}
 					break;
 				}
 			}
-			if(startDate.length() > 0 && endDate.length() > 0){
-				processWithOutWeek(startDate, endDate);
+			if(startDate.length() > 0){
+				if(!startDate.contains("W") && !endDate.contains("W")){
+					if(endDate.length() != 0){
+						processWithOutWeek(startDate, endDate);
+					}
+					else{
+						processWithOutWeek(startDate, startDate);
+					}
+				}
+				else{
+					if(endDate.length() != 0){
+						processWithWeek(startDate, endDate);
+					}
+					else{
+						processWithWeek(startDate, startDate);
+					}
+				}
 			}
 		}
 	}
 	
-	public void processWithWeek(String startDate, String endDate){
+	public Date makeDateWithWeek(String dateString){
+		int startIndexForWeek = dateString.indexOf("W");
+		int endIndexForWeek = 0;
+		startIndexForWeek++;
 		
+		int year = 0, week = 0;
+		endIndexForWeek = startIndexForWeek + 2;
+		String weekNum = dateString.substring(startIndexForWeek, endIndexForWeek);
+		week = Integer.parseInt(weekNum);
+		week++;
+		for (int i = 0; i < dateString.length(); i++) {
+			if (dateString.charAt(i) == '-') {
+				year = Integer.parseInt(dateString.substring(0, i));
+				break;
+			}
+		}
+		Calendar cld = Calendar.getInstance();
+		cld.set(Calendar.YEAR, year);
+		cld.set(Calendar.WEEK_OF_YEAR, week);
+		if(dateString.contains("WE")){
+			cld.set(Calendar.DAY_OF_WEEK, 7);
+		}
+		
+		Date date = cld.getTime();
+		return date;
+	}
+	
+	public void processWithWeek(String startDate, String endDate){
+		Date startDateOfEvent = makeDateWithWeek(startDate);
+		Date endDateOfEvent = makeDateWithWeek(endDate);
+		
+		Event event = new Event(startDateOfEvent, endDateOfEvent);
+		listEvents.add(event);
 	}
 	
 	public void processWithOutWeek(String startDate, String endDate){
@@ -242,27 +297,43 @@ class SplitEvent{
 				}
 			}
 			Calendar cld = Calendar.getInstance();
+			cld.set(Calendar.DAY_OF_WEEK, 6);
 			cld.set(Calendar.YEAR, year);
 			cld.set(Calendar.WEEK_OF_YEAR, week);
 			cld.setFirstDayOfWeek(Calendar.MONDAY);
 			
 			if(!timeExpress.contains("WE")){
-				cld.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY);
-				Date startDate = cld.getTime();
-				cld.set(Calendar.DAY_OF_WEEK, Calendar.SUNDAY);
-				Date endDate = cld.getTime();
-			
-				Event event = new Event(startDate, endDate);
-				listEvents.add(event);
+				for(int i = 1 ; i <= 7 ; i++){
+					cld.set(Calendar.DAY_OF_WEEK,i);
+					cld.set(Calendar.MINUTE, 00);
+					cld.set(Calendar.SECOND, 00);
+					cld.set(Calendar.HOUR_OF_DAY, 07);
+					Date startDate = cld.getTime();
+					
+					cld.set(Calendar.HOUR_OF_DAY, 23);
+					Date endDate = cld.getTime();
+					
+					Event event = new Event(startDate, endDate);
+					listEvents.add(event);
+				}
 			}
 			else{
-				cld.set(Calendar.DAY_OF_WEEK, Calendar.SATURDAY);
-				Date startDate = cld.getTime();
-				cld.set(Calendar.DAY_OF_WEEK, Calendar.SUNDAY);
-				Date endDate = cld.getTime();
-			
-				Event event = new Event(startDate, endDate);
-				listEvents.add(event);
+				for(int i = 1 ; i <= 7 ; i++){
+					if(i == 1 || i == 7){
+						cld.set(Calendar.DAY_OF_WEEK,i);
+						cld.set(Calendar.MINUTE, 00);
+						cld.set(Calendar.SECOND, 00);
+						
+						cld.set(Calendar.HOUR_OF_DAY, 07);
+						Date startDate = cld.getTime();
+						
+						cld.set(Calendar.HOUR_OF_DAY, 23);
+						Date endDate = cld.getTime();
+						
+						Event event = new Event(startDate, endDate);
+						listEvents.add(event);
+					}
+				}
 			}
 		}
 	}
@@ -281,7 +352,53 @@ class SplitEvent{
 			}
 		}
 		else{
-			
+			if(!timeExpress.contains("MO") && !timeExpress.contains("AF") && !timeExpress.contains("EV")){
+				try{
+					Date startDate = new SimpleDateFormat("yyyy-MM-dd'T'hh:mm").parse(timeExpress);
+					Date endDate = new SimpleDateFormat("yyyy-MM-dd'T'hh:mm").parse(timeExpress);
+					Event event = new Event(startDate, endDate);
+					listEvents.add(event);
+				}			
+				catch (ParseException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+			else{
+				if(timeExpress.contains("MO")){
+					try{
+						Date startDate = new SimpleDateFormat("yyyy-MM-dd'TMO'hh:mm").parse(timeExpress + "07:00");
+						Date endDate = new SimpleDateFormat("yyyy-MM-dd'TMO'hh:mm").parse(timeExpress + "11:00");
+						Event event = new Event(startDate, endDate);
+						listEvents.add(event);
+					}
+					catch(ParseException e){
+						e.printStackTrace();
+					}
+				}
+				else if(timeExpress.contains("AF")){
+					try{
+						Date startDate = new SimpleDateFormat("yyyy-MM-dd'TAF'hh:mm").parse(timeExpress + "12:00");
+						Date endDate = new SimpleDateFormat("yyyy-MM-dd'TAF'hh:mm").parse(timeExpress + "18:00");
+						Event event = new Event(startDate, endDate);
+						listEvents.add(event);
+					}
+					catch(ParseException e){
+						e.printStackTrace();
+					}
+				}
+				else if(timeExpress.contains("EV")){
+					try{
+						Date startDate = new SimpleDateFormat("yyyy-MM-dd'TEV'hh:mm").parse(timeExpress + "19:00");
+						Date endDate = new SimpleDateFormat("yyyy-MM-dd'TEV'hh:mm").parse(timeExpress + "23:00");
+						Event event = new Event(startDate, endDate);
+						listEvents.add(event);
+					}
+					catch(ParseException e){
+						e.printStackTrace();
+					}
+				}
+			}
 		}
 	}
 	
