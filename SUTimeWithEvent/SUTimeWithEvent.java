@@ -10,6 +10,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import edu.stanford.nlp.ling.CoreAnnotations;
@@ -44,7 +45,6 @@ class FileDecision {
 	}
 
 	public void initializes(String fileName) {
-		Date date = new Date();
 		this.fileName = fileName;
 	}
 
@@ -82,6 +82,9 @@ class SplitEvent{
 	private String fileName;
 	private List<Event> listEvents = new ArrayList<Event>();
 	private String today = new String();
+
+    private List<String> matchesListForFromTo = new ArrayList<String>();
+    private List<String> matchesListForBeforeAfter = new ArrayList<String>();
 	
 	public SplitEvent(String fileName){
 		this.fileName = fileName;
@@ -95,6 +98,20 @@ class SplitEvent{
 		DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH);
 		Date date = new Date();
 		today = dateFormat.format(date).toString();
+
+
+        matchesListForBeforeAfter.add("(.*)(before\\s([0-9])(am))");
+        matchesListForBeforeAfter.add("(.*)(before\\s([0-9])(pm))");
+        matchesListForBeforeAfter.add("(.*)(before\\s([0-9])([0-9])(am))");
+        matchesListForBeforeAfter.add("(.*)(before\\s([0-9])([0-9])(pm))");
+
+        matchesListForBeforeAfter.add("(.*)(after\\s([0-9])(am))");
+        matchesListForBeforeAfter.add("(.*)(after\\s([0-9])(pm))");
+        matchesListForBeforeAfter.add("(.*)(after\\s([0-9])([0-9])(am))");
+        matchesListForBeforeAfter.add("(.*)(after\\s([0-9])([0-9])(pm))");
+
+        matchesListForFromTo.add("(.*)from(.*)to(.*)on(.*)");
+        matchesListForFromTo.add("(.*)from(.*)to(.*)");
 	}
 	
 	public void process(){
@@ -102,16 +119,27 @@ class SplitEvent{
 		
 		for (String text : FileDecision.listSentences) {
 			text = text.toLowerCase();
-			
-			if(text.matches("(.*)from(.*)to(.*)on(.*)") || text.matches("from(.*)to(.*)on(.*)") || text.matches("from(.*)to(.*)") || text.matches("(.*)from(.*)to(.*)")){
-				editTextWithFromTo(text);
-			}
-			else{
+            int count = 0;
+
+			for(String ele : matchesListForFromTo){
+                if(text.matches(ele)){
+                    count++;
+                    editTextWithFromTo(text);
+                    break;
+                }
+            }
+            for(String ele : matchesListForBeforeAfter){
+                if(text.matches(ele + "((.*))")){
+                    count++;
+                    editTextWithBeforeAfter(text);
+                    break;
+                }
+            }
+			if(count == 0){
 				Annotation annotation = new Annotation(text);
 				annotation.set(CoreAnnotations.DocDateAnnotation.class, this.today);
 				pipeline.annotate(annotation);// Run the pipeline on an input annotation
-					
-				System.out.println(annotation.get(CoreAnnotations.TextAnnotation.class));
+
 				List<CoreMap> timexAnnsAll = annotation.get(TimeAnnotations.TimexAnnotations.class);
 				for (CoreMap cm : timexAnnsAll) {
 					String timeExpress = cm.get(TimeExpression.Annotation.class).getTemporal().getTimexValue();
@@ -122,7 +150,7 @@ class SplitEvent{
 					}
 					else{
 						// For case doesn't have week
-						processWithOutWeek(timeExpress);
+						processWithOutWeek(timeExpress,-1);
 					}
 				}
 			}
@@ -131,7 +159,6 @@ class SplitEvent{
 	
 	public void editTextWithFromTo(String content){
 		Pattern pattern = Pattern.compile("from");
-		List<String> resultList = new ArrayList<String>();
 		String[] splitList = pattern.split(content);
 		
 		for(String element : splitList){
@@ -215,6 +242,87 @@ class SplitEvent{
 			}
 		}
 	}
+
+    public void makeEventWithAfterBefore(String text){
+
+            Annotation annotation = new Annotation(text);
+            annotation.set(CoreAnnotations.DocDateAnnotation.class, this.today);
+            pipeline.annotate(annotation);// Run the pipeline on an input annotation
+
+            List<CoreMap> timexAnnsAll = annotation.get(TimeAnnotations.TimexAnnotations.class);
+            for(CoreMap cm : timexAnnsAll){
+                String timeExpress = cm.get(TimeExpression.Annotation.class).getTemporal().getTimexValue();
+                int indexOfHourPath = timeExpress.indexOf("T");
+                String hourPath = timeExpress.substring(indexOfHourPath + 1, indexOfHourPath + 3);
+                if(text.contains("before")){
+                    if(Integer.parseInt(hourPath) <= 7){
+                        makeEventWithSimpleDateFormat("yyyy-MM-dd'T'hh:mm", timeExpress, timeExpress);
+                    }
+                    else{
+                        StringBuilder strB = new StringBuilder(timeExpress);
+                        strB.replace(indexOfHourPath + 1, indexOfHourPath + 6, "07:00");
+                        String newExpress = strB.toString();
+                        makeEventWithSimpleDateFormat("yyyy-MM-dd'T'hh:mm", newExpress, timeExpress);
+                    }
+                }
+                else{
+                    if(Integer.parseInt(hourPath) >= 23){
+                        makeEventWithSimpleDateFormat("yyyy-MM-dd'T'hh:mm", timeExpress, timeExpress);
+                    }
+                    else{
+                        StringBuilder strB = new StringBuilder(timeExpress);
+                        strB.replace(indexOfHourPath + 1, indexOfHourPath + 6, "23:00");
+                        String newExpress = strB.toString();
+                        makeEventWithSimpleDateFormat("yyyy-MM-dd'T'hh:mm", timeExpress, newExpress);
+                    }
+                }
+            }
+    }
+
+    public void editTextWithBeforeAfter(String text){
+        List<String> outputList = new ArrayList<String>();
+
+        if(text.contains("before")){
+            String outputListAfterSplitByBefore[] = text.split("before");
+            for(String str : outputListAfterSplitByBefore){
+                str = "before" + str;
+                if(str.contains("after")){
+                    String outputListAfterSplitByAfter[] = str.split("after");
+                    for(String element : outputListAfterSplitByAfter){
+                        if(!element.contains("before")){
+                            element = "after" + element;
+                        }
+                        outputList.add(element);
+                    }
+                }
+                else{
+                    outputList.add(str);
+                }
+            }
+        }
+        else if(text.contains("after")){
+            String outputListAfterSplitByBefore[] = text.split("after");
+            for(String str : outputListAfterSplitByBefore){
+                str = "after" + str;
+                if(str.contains("before")){
+                    String outputListAfterSplitByAfter[] = str.split("before");
+                    for(String element : outputListAfterSplitByAfter){
+                        if(!element.contains("after")){
+                            element = "before" + element;
+                            outputList.add(element);
+                        }
+                    }
+                }
+                else{
+                    outputList.add(str);
+                }
+            }
+        }
+
+        for(String str : outputList){
+            makeEventWithAfterBefore(str);
+        }
+    }
 	
 	public Date makeDateWithWeek(String dateString){
 		int startIndexForWeek = dateString.indexOf("W");
@@ -235,6 +343,7 @@ class SplitEvent{
 		Calendar cld = Calendar.getInstance();
 		cld.set(Calendar.YEAR, year);
 		cld.set(Calendar.WEEK_OF_YEAR, week);
+
 		if(dateString.contains("WE")){
 			cld.set(Calendar.DAY_OF_WEEK, 7);
 		}
@@ -246,37 +355,15 @@ class SplitEvent{
 	public void processWithWeek(String startDate, String endDate){
 		Date startDateOfEvent = makeDateWithWeek(startDate);
 		Date endDateOfEvent = makeDateWithWeek(endDate);
-		
-		Event event = new Event(startDateOfEvent, endDateOfEvent);
-		listEvents.add(event);
+		makeAndAddEvent(startDateOfEvent, endDateOfEvent);
 	}
 	
 	public void processWithOutWeek(String startDate, String endDate){
 		if(startDate.contains("T")){
-			try {
-				Date startDateOfEvent = new SimpleDateFormat("yyyy-MM-dd'T'hh:mm").parse(startDate);
-				Date endDateOfEvent = new SimpleDateFormat("yyyy-MM-dd'T'hh:mm").parse(endDate);	
-				Event event = new Event(startDateOfEvent, endDateOfEvent);
-				
-				listEvents.add(event);
-			} 
-			catch (ParseException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
+            makeEventWithSimpleDateFormat("yyyy-MM-dd'T'hh:mm", startDate, endDate);
 		}
 		else{
-			try {
-				Date startDateOfEvent = new SimpleDateFormat("yyyy-MM-dd").parse(startDate);
-				Date endDateOfEvent = new SimpleDateFormat("yyyy-MM-dd").parse(endDate);	
-				Event event = new Event(startDateOfEvent, endDateOfEvent);
-				listEvents.add(event);
-			} 
-			catch (ParseException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-			
+            makeEventWithSimpleDateFormat("yyyy-MM-dd", startDate, endDate);
 		}
 	}
 	
@@ -284,119 +371,104 @@ class SplitEvent{
 		if(!timeExpress.contains("WXX")){
 			int startIndexForWeek = timeExpress.indexOf("W");
 			int endIndexForWeek = 0;
-			startIndexForWeek++;
+
+            startIndexForWeek++;
 			int year = 0, week = 0;
 			endIndexForWeek = startIndexForWeek + 2;
-			String weekNum = timeExpress.substring(startIndexForWeek, endIndexForWeek);
+
+            String weekNum = timeExpress.substring(startIndexForWeek, endIndexForWeek);
 			week = Integer.parseInt(weekNum);
 			week++;
-			for (int i = 0; i < timeExpress.length(); i++) {
+
+            for (int i = 0; i < timeExpress.length(); i++) {
 				if (timeExpress.charAt(i) == '-') {
 					year = Integer.parseInt(timeExpress.substring(0, i));
 					break;
 				}
 			}
-			Calendar cld = Calendar.getInstance();
-			cld.set(Calendar.DAY_OF_WEEK, 6);
-			cld.set(Calendar.YEAR, year);
-			cld.set(Calendar.WEEK_OF_YEAR, week);
-			cld.setFirstDayOfWeek(Calendar.MONDAY);
 			
 			if(!timeExpress.contains("WE")){
 				for(int i = 1 ; i <= 7 ; i++){
-					cld.set(Calendar.DAY_OF_WEEK,i);
-					cld.set(Calendar.MINUTE, 00);
-					cld.set(Calendar.SECOND, 00);
-					cld.set(Calendar.HOUR_OF_DAY, 07);
-					Date startDate = cld.getTime();
-					
-					cld.set(Calendar.HOUR_OF_DAY, 23);
-					Date endDate = cld.getTime();
-					
-					Event event = new Event(startDate, endDate);
-					listEvents.add(event);
-				}
+                    Date startDate = makeCustomCalendar(year, week, i, 00, 00, 07, Calendar.MONDAY).getTime();
+                    Date endDate = makeCustomCalendar(year, week, i, 00, 00, 23, Calendar.MONDAY).getTime();
+                    makeAndAddEvent(startDate, endDate);
+                }
 			}
 			else{
 				for(int i = 1 ; i <= 7 ; i++){
 					if(i == 1 || i == 7){
-						cld.set(Calendar.DAY_OF_WEEK,i);
-						cld.set(Calendar.MINUTE, 00);
-						cld.set(Calendar.SECOND, 00);
-						
-						cld.set(Calendar.HOUR_OF_DAY, 07);
-						Date startDate = cld.getTime();
-						
-						cld.set(Calendar.HOUR_OF_DAY, 23);
-						Date endDate = cld.getTime();
-						
-						Event event = new Event(startDate, endDate);
-						listEvents.add(event);
+						Date startDate = makeCustomCalendar(year, week, i, 00, 00, 07, Calendar.MONDAY).getTime();
+						Date endDate = makeCustomCalendar(year, week, i, 00, 00, 23, Calendar.MONDAY).getTime();
+				        makeAndAddEvent(startDate, endDate);
 					}
 				}
 			}
 		}
 	}
+
+    public Calendar makeCustomCalendar(int year, int week, int day_of_week, int minute, int second, int hour, int first_day_of_week){
+        Calendar cld = Calendar.getInstance();
+
+        cld.set(Calendar.YEAR, year);
+        cld.set(Calendar.WEEK_OF_YEAR, week);
+
+        cld.setFirstDayOfWeek(first_day_of_week);
+        cld.set(Calendar.DAY_OF_WEEK,day_of_week);
+        cld.set(Calendar.MINUTE, minute);
+        cld.set(Calendar.SECOND, second);
+
+        cld.set(Calendar.HOUR_OF_DAY, hour);
+
+        return cld;
+    }
+
+    public void makeEventWithSimpleDateFormat(String format, String startDate, String endDate){
+        Date startDateOfEvent = makeDateWithSimpleDateFormat(format, startDate);
+        Date endDateOfEvent = makeDateWithSimpleDateFormat(format, endDate);
+        makeAndAddEvent(startDateOfEvent, endDateOfEvent);
+    }
+
+    public Date makeDateWithSimpleDateFormat(String format, String timeExpress){
+        try {
+            return new SimpleDateFormat(format).parse(timeExpress);
+        }
+        catch (ParseException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    public void makeAndAddEvent(Date startDate, Date endDate){
+        Event event = new Event(startDate, endDate);
+        listEvents.add(event);
+    }
 	
-	public void processWithOutWeek(String timeExpress){
+	public void processWithOutWeek(String timeExpress,int flagTimeMode){
 		if(!timeExpress.contains("T")){
-			try {
-				Date startDate = new SimpleDateFormat("yyyy-MM-dd hh:mm").parse(timeExpress + " 07:00");
-				Date endDate = new SimpleDateFormat("yyyy-MM-dd hh:mm").parse(timeExpress + " 23:00");	
-				Event event = new Event(startDate, endDate);
-				listEvents.add(event);
-			} 
-			catch (ParseException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-		}
+            makeEventWithSimpleDateFormat("yyyy-MM-dd hh:mm", timeExpress + " 07:00", timeExpress + " 23:00");
+        }
 		else{
 			if(!timeExpress.contains("MO") && !timeExpress.contains("AF") && !timeExpress.contains("EV")){
-				try{
-					Date startDate = new SimpleDateFormat("yyyy-MM-dd'T'hh:mm").parse(timeExpress);
-					Date endDate = new SimpleDateFormat("yyyy-MM-dd'T'hh:mm").parse(timeExpress);
-					Event event = new Event(startDate, endDate);
-					listEvents.add(event);
-				}			
-				catch (ParseException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
+                int index = timeExpress.indexOf("T");
+                String newExpress = timeExpress.substring(0, index + 1);
+                if(flagTimeMode == -1){
+                    newExpress += "07:00";
+                    makeEventWithSimpleDateFormat("yyyy-MM-dd'T'hh:mm", newExpress, timeExpress);
+                }
+                else{
+                    newExpress += "23:00";
+                    makeEventWithSimpleDateFormat("yyyy-MM-dd'T'hh:mm", timeExpress, newExpress);
+                }
 			}
 			else{
 				if(timeExpress.contains("MO")){
-					try{
-						Date startDate = new SimpleDateFormat("yyyy-MM-dd'TMO'hh:mm").parse(timeExpress + "07:00");
-						Date endDate = new SimpleDateFormat("yyyy-MM-dd'TMO'hh:mm").parse(timeExpress + "11:00");
-						Event event = new Event(startDate, endDate);
-						listEvents.add(event);
-					}
-					catch(ParseException e){
-						e.printStackTrace();
-					}
+                    makeEventWithSimpleDateFormat("yyyy-MM-dd'TMO'hh:mm", timeExpress + "07:00", timeExpress + "11:00");
 				}
 				else if(timeExpress.contains("AF")){
-					try{
-						Date startDate = new SimpleDateFormat("yyyy-MM-dd'TAF'hh:mm").parse(timeExpress + "12:00");
-						Date endDate = new SimpleDateFormat("yyyy-MM-dd'TAF'hh:mm").parse(timeExpress + "18:00");
-						Event event = new Event(startDate, endDate);
-						listEvents.add(event);
-					}
-					catch(ParseException e){
-						e.printStackTrace();
-					}
+                    makeEventWithSimpleDateFormat("yyyy-MM-dd'TAF'hh:mm", timeExpress + "12:00", timeExpress + "18:00");
 				}
 				else if(timeExpress.contains("EV")){
-					try{
-						Date startDate = new SimpleDateFormat("yyyy-MM-dd'TEV'hh:mm").parse(timeExpress + "19:00");
-						Date endDate = new SimpleDateFormat("yyyy-MM-dd'TEV'hh:mm").parse(timeExpress + "23:00");
-						Event event = new Event(startDate, endDate);
-						listEvents.add(event);
-					}
-					catch(ParseException e){
-						e.printStackTrace();
-					}
+                    makeEventWithSimpleDateFormat("yyyy-MM-dd'TEV'hh:mm", timeExpress + "19:00", timeExpress + "23:00");
 				}
 			}
 		}
